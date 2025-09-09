@@ -1,0 +1,6 @@
+fastmcp
+fastapi
+httpx
+asyncio
+beautifulsoup4
+httpx-ntlm
