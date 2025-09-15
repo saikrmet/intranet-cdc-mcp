@@ -208,7 +208,7 @@ def create_server():
 async def main():
     server, search_service = create_server()
     try:
-        await server.run_async(transport="streamable-http")
+        await server.run_async(transport="http", host="0.0.0.0", port=8000)
     finally:
         await search_service.close()
 
