@@ -1,10 +1,11 @@
 import asyncio
+import os
 from fastmcp import FastMCP
 from models import SearchToolResponse, SearchResults, SearchResult, ContentItem
 import logging
 import httpx
 from urllib.parse import quote_plus
-import json
+import json, ssl
 from bs4 import BeautifulSoup
 from httpx_ntlm import HttpNtlmAuth
 
@@ -21,9 +22,21 @@ logger = logging.getLogger(__name__)
 class CDCSearchService:
     def __init__(self):
         logger.info("Initializing CDC Search Service with NTLM authentication")
+        
+        # Get service account credentials from environment variables
+        username = os.getenv('CDC_SERVICE_USERNAME')
+        password = os.getenv('CDC_SERVICE_PASSWORD')
+        
+        if not username or not password:
+            logger.warning("Service account credentials not found in environment variables. Falling back to current user credentials.")
+            auth = HttpNtlmAuth(None, None)  # Use current Windows credentials as fallback
+        else:
+            logger.info(f"Using service account: {username}")
+            auth = HttpNtlmAuth(username, password)
+        
         # Configure HTTP client for CDC intranet access with Windows auth
         self.http_client = httpx.AsyncClient(
-            auth=HttpNtlmAuth(None, None),  # Use current Windows credentials
+            auth=auth,
             timeout=30.0,
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36 Edg/139.0.0.0",
