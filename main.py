@@ -1,3 +1,28 @@
+"""
+CDC Intranet MCP Server
+
+This module implements a Model Context Protocol (MCP) server that provides secure access
+to the CDC's internal intranet search capabilities. The server exposes two main tools:
+1. search_cdc_intranet - Search across CDC internal websites
+2. fetch_cdc_intranet - Retrieve full content from specific CDC intranet pages
+
+The server uses NTLM authentication to access CDC's internal search infrastructure
+and returns structured data compatible with MCP clients like Claude Desktop, VS Code
+extensions, or custom applications.
+
+Key Features:
+- NTLM authentication for secure intranet access
+- Solr-based search integration with CDC's search API
+- HTML content extraction and cleaning
+- Structured error handling and logging
+- HTTP transport for broad client compatibility
+
+Deployment Requirements:
+- Must be deployed within CDC's internal network
+- Requires valid CDC credentials for NTLM authentication
+- Network access to intranetsearch.cdc.gov and CDC intranet domains
+"""
+
 import asyncio
 import os
 from fastmcp import FastMCP
@@ -20,6 +45,20 @@ logger = logging.getLogger(__name__)
 
 
 class CDCSearchService:
+    """
+    Service class for interacting with CDC's internal intranet search and content systems.
+    
+    This class handles:
+    - NTLM authentication setup for CDC intranet access
+    - HTTP client configuration with appropriate headers
+    - Search API integration with CDC's Solr-based search
+    - HTML content extraction and parsing
+    - Error handling and logging for all operations
+    
+    The service supports both service account authentication (recommended for production)
+    and current user credentials (suitable for development on domain-joined machines).
+    """
+    
     def __init__(self):
         logger.info("Initializing CDC Search Service with NTLM authentication")
         
@@ -52,7 +91,20 @@ class CDCSearchService:
         await self.http_client.aclose()
     
     def _get_text_from_highlighting(self, doc, highlighting):
-        """Extract text from highlighting data with fallbacks."""
+        """
+        Extract text content from Solr search highlighting data with fallbacks.
+        
+        CDC's search API returns highlighted content snippets that show search terms
+        in context. This method prioritizes highlighted content but falls back to
+        document descriptions if highlighting is unavailable.
+        
+        Args:
+            doc: Document object from Solr search results
+            highlighting: Highlighting data from Solr response
+            
+        Returns:
+            str: Extracted text content or fallback message
+        """
         doc_id = doc.get("id", "")
         
         # Try to get highlighted content first
@@ -70,6 +122,26 @@ class CDCSearchService:
         return "No content available"
     
     async def search_cdc_intranet(self, query: str) -> dict:
+        """
+        Search CDC's internal intranet using their Solr-based search API.
+        
+        This method constructs a search request to CDC's internal search service,
+        processes the results, and returns them in MCP-compatible format. The search
+        includes highlighting to show search terms in context and supports various
+        search parameters like result limits and field selection.
+        
+        Args:
+            query (str): Natural language search query
+            
+        Returns:
+            dict: MCP-formatted response containing search results or error information
+            
+        Search API Details:
+        - Endpoint: intranetsearch.cdc.gov/srch/intranet/browse2-nodoc
+        - Format: Solr JSON API with highlighting enabled
+        - Fields: id, url, title, description
+        - Results: Limited to 10 per query for performance
+        """
         if not query.strip():
             logger.warning("Empty search query received")
             response = SearchToolResponse(
@@ -133,7 +205,28 @@ class CDCSearchService:
         return error_response.model_dump()
 
     async def fetch_cdc_intranet(self, id: str) -> dict:
-        """Fetch and extract content from a CDC intranet page."""
+        """
+        Fetch and extract content from a CDC intranet page.
+        
+        This method retrieves the full HTML content of a CDC intranet page,
+        parses it using BeautifulSoup, and extracts clean text content from
+        the main content area. It's designed to work with CDC's standard
+        intranet page structure that uses <main role="main"> elements.
+        
+        Args:
+            id (str): URL or identifier of the CDC intranet page to fetch
+            
+        Returns:
+            dict: MCP-formatted response containing page content or error information
+            
+        Content Extraction Process:
+        1. Fetch HTML content via authenticated HTTP request
+        2. Parse HTML using BeautifulSoup
+        3. Locate main content area (<main role="main">)
+        4. Extract title from first <h1> element
+        5. Extract and clean all text content
+        6. Return structured result in MCP format
+        """
         logger.info(f"Fetching CDC intranet page: {id}")
         
         try:
@@ -205,6 +298,21 @@ class CDCSearchService:
 
 
 def create_server():
+    """
+    Create and configure the FastMCP server with CDC intranet tools.
+    
+    This function initializes the MCP server with:
+    - CDC search service instance for handling authentication and API calls
+    - Server instructions describing capabilities and usage
+    - Tool definitions for search_cdc_intranet and fetch_cdc_intranet
+    - Proper error handling and logging configuration
+    
+    Returns:
+        tuple: (FastMCP server instance, CDCSearchService instance)
+        
+    The server uses HTTP transport which makes it compatible with various
+    MCP clients including Claude Desktop, VS Code extensions, and custom applications.
+    """
     search_service = CDCSearchService()
     instructions = """
     This MCP server provides search capabilities for the CDC internal web (intranet).
@@ -266,6 +374,23 @@ def create_server():
 
 
 async def main():
+    """
+    Main entry point for the CDC Intranet MCP Server.
+    
+    This function:
+    1. Initializes the MCP server and CDC search service
+    2. Starts the HTTP server on host 0.0.0.0:8000
+    3. Handles graceful shutdown on interruption
+    4. Ensures proper cleanup of HTTP client connections
+    
+    The server runs indefinitely until interrupted (Ctrl+C) or an error occurs.
+    All connections and resources are properly cleaned up on shutdown.
+    
+    Environment Variables:
+    - CDC_SERVICE_USERNAME: NTLM username for service account (optional)
+    - CDC_SERVICE_PASSWORD: NTLM password for service account (optional)
+    - PORT: Server port (default 8000)
+    """
     logger.info("Starting CDC Intranet MCP Server")
     server, search_service = create_server()
     try:
